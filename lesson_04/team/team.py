@@ -56,34 +56,68 @@ class Queue351():
         return len(self.__items) + extra
 
 # ---------------------------------------------------------------------------
-def producer():
+def producer(id, que, empty_slots, full_slots, barrier):
     for i in range(PRIME_COUNT):
         number = random.randint(1, 1_000_000_000_000)
-        # TODO - place on queue for workers
+        empty_slots.acquire()
+        que.put(number)
+        full_slots.release()
 
     # TODO - select one producer to send the "All Done" message
+    barrier.wait()
+    if id == 0:
+        for _ in range(CONSUMERS):
+            empty_slots.acquire()
+            que.put(None)
+            full_slots.release()
 
 # ---------------------------------------------------------------------------
-def consumer():
-    # TODO - get values from the queue and check if they are prime
-    # TODO - if prime, write to the file
-    # TODO - if "All Done" message, exit the loop
-    ...
+def consumer(que, empty_slots, full_slots):
+    while True:
+        full_slots.acquire()
+        number = que.get()
+        empty_slots.release()
+
+        if number is None:
+            break
+
+        if is_prime(number):
+            with open(FILENAME, 'a') as f:
+                f.write(f'{number}\n')
 
 # ---------------------------------------------------------------------------
 def main():
 
     random.seed(102030)
 
+    with open(FILENAME, 'w') as f:
+        pass
+
     que = Queue351()
 
-    # TODO - create semaphores for the queue (see Queue351 class)
+    empty_slots = threading.Semaphore(MAX_QUEUE_SIZE)
+    full_slots = threading.Semaphore(0)
 
-    # TODO - create barrier
+    barrier = threading.Barrier(PRODUCERS)
 
-    # TODO - create producers threads (see PRODUCERS value)
+    producers = []
+    for i in range(PRODUCERS):
+        thread = threading.Thread(
+            target=producer,
+            args=(i, que, empty_slots, full_slots, barrier),
+        )
+        thread.start()
+        producers.append(thread)
 
-    # TODO - create consumers threads (see CONSUMERS value)
+    consumers = [
+        threading.Thread(target=consumer, args=(que, empty_slots, full_slots))
+        for _ in range(CONSUMERS)
+    ]
+    for thread in consumers:
+        thread.start()
+
+    for thread in producers + consumers:
+        thread.join()
 
     if os.path.exists(FILENAME):
         with open(FILENAME, 'r') as f:
